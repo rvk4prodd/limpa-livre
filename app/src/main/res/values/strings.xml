@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">LimpaLivre</string>
+    <string name="accessibility_service_label">LimpaLivre • Automação de Cache</string>
+    <string name="accessibility_service_description">Auxilia na limpeza automática do cache de aplicativos selecionados nas Configurações do sistema. Nunca clica em Limpar dados, nunca apaga arquivos pessoais e só atua quando você inicia uma limpeza.</string>
+</resources>

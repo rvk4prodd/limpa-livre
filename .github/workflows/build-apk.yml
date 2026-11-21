@@ -1,0 +1,96 @@
+name: Build & Release APK
+
+on:
+  push:
+    branches: [ main, master ]
+    tags: [ 'v*' ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-apk:
+    name: Testar e Compilar APK Android
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Baixar código do repositório
+        uses: actions/checkout@v4
+
+      - name: Configurar Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Configurar Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Dar permissão de execução ao gradlew
+        run: chmod +x gradlew
+
+      - name: Executar testes unitários
+        run: ./gradlew testDebugUnitTest
+
+      - name: Preparar Keystore para assinatura do APK Release
+        shell: bash
+        run: |
+          if [ -n "${{ secrets.KEYSTORE_BASE64 }}" ]; then
+            echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > /tmp/limpalivre-release.jks
+            echo "KEYSTORE_PATH=/tmp/limpalivre-release.jks" >> "$GITHUB_ENV"
+            echo "KEYSTORE_PASSWORD=${{ secrets.KEYSTORE_PASSWORD }}" >> "$GITHUB_ENV"
+            echo "KEY_ALIAS=${{ secrets.KEY_ALIAS }}" >> "$GITHUB_ENV"
+            echo "KEY_PASSWORD=${{ secrets.KEY_PASSWORD }}" >> "$GITHUB_ENV"
+          else
+            keytool -genkeypair -v \
+              -keystore /tmp/limpalivre-release.jks \
+              -storetype PKCS12 \
+              -alias limpalivre \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -storepass limpalivre2026 \
+              -keypass limpalivre2026 \
+              -dname "CN=LimpaLivre, O=LimpaLivre, L=Sao Paulo, ST=SP, C=BR"
+            echo "KEYSTORE_PATH=/tmp/limpalivre-release.jks" >> "$GITHUB_ENV"
+            echo "KEYSTORE_PASSWORD=limpalivre2026" >> "$GITHUB_ENV"
+            echo "KEY_ALIAS=limpalivre" >> "$GITHUB_ENV"
+            echo "KEY_PASSWORD=limpalivre2026" >> "$GITHUB_ENV"
+          fi
+
+      - name: Compilar APKs (Release e Debug)
+        run: ./gradlew assembleRelease assembleDebug
+
+      - name: Preparar arquivos de distribuição
+        run: |
+          mkdir -p dist
+          cp app/build/outputs/apk/release/app-release.apk dist/LimpaLivre-v1.0.0-release.apk
+          cp app/build/outputs/apk/debug/app-debug.apk dist/LimpaLivre-v1.0.0-debug.apk
+          ls -lh dist/
+
+      - name: Publicar APKs como Artifacts da Action
+        uses: actions/upload-artifact@v4
+        with:
+          name: LimpaLivre-APKs
+          path: dist/*.apk
+          retention-days: 90
+
+      - name: Publicar APK na aba Releases do GitHub
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG_NAME="${GITHUB_REF_NAME}"
+          if [[ "$GITHUB_REF" != refs/tags/* ]]; then
+            TAG_NAME="latest"
+          fi
+
+          if gh release view "$TAG_NAME" >/dev/null 2>&1; then
+            gh release upload "$TAG_NAME" dist/LimpaLivre-v1.0.0-release.apk dist/LimpaLivre-v1.0.0-debug.apk --clobber
+          else
+            gh release create "$TAG_NAME" \
+              dist/LimpaLivre-v1.0.0-release.apk \
+              dist/LimpaLivre-v1.0.0-debug.apk \
+              --title "LimpaLivre v1.0.0 (APK Gratuito)" \
+              --notes "Download direto para Android 8.0+. Instale o arquivo **LimpaLivre-v1.0.0-release.apk** no seu celular. 100% gratuito, offline, sem anúncios e sem paywall."
+          fi
